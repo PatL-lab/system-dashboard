@@ -625,9 +625,17 @@ function mapProcessLine(headers, parts) {
 async function getProcesses() {
   let procs = [];
   try {
-    const out = await runCommand('top', ['-b', '-n', '1', '-w', '512']);
+    // Run 2 iterations with a short delay (0.3s) so top calculates real CPU deltas
+    // rather than the single-iteration micro-window startup spike.
+    const out = await runCommand('top', ['-b', '-n', '2', '-d', '0.3', '-w', '512']);
     const lines = out.split('\n');
-    const pidIndex = lines.findIndex(l => /^\s*PID\s+/i.test(l));
+    let pidIndex = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (/^\s*PID\s+/i.test(lines[i])) {
+        pidIndex = i;
+        break;
+      }
+    }
     if (pidIndex !== -1) {
       const headers = lines[pidIndex].trim().split(/\s+/);
       for (let i = pidIndex + 1; i < lines.length; i++) {
