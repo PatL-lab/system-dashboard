@@ -46,9 +46,12 @@ package.json           # Dep: express ^4.21.0; script: start
 ## Key Details
 
 ### `ansiToHtml` (server)
-Escapes HTML, then walks ANSI SGR codes and emits `<span style="color/background-color">`
-tags with a hardcoded 16-color palette (fg + bg). Handles bold (`1`), resets (`0`, `39`, `49`).
-Used to render `fastfetch` output faithfully.
+Simulates a 2D terminal grid to accurately render ANSI cursor movements (`CUU`, `CUD`,
+`CUF`, `CUB`, `CHA`, `CUP`), strips OSC sequences (such as OSC 8 hyperlinks), and emits
+styled HTML `<span style="...">` tags supporting 16-color, 256-color, and 24-bit TrueColor
+palettes along with bold and background colors. This ensures multi-column side-by-side
+layouts like fastfetch render cleanly across different distributions (Parrot OS, Kali,
+Debian, Ubuntu, RedHat, etc.).
 
 ### CPU sampling (`sampleCpu`, `getSystemMetrics`, `getMemoryData`)
 Reads Linux procfs directly (`/proc/stat`, `/proc/meminfo`, `/proc/loadavg`, `/proc/uptime`).

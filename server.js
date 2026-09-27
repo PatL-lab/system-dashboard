@@ -32,6 +32,41 @@ function runCommand(cmd, args = [], extraEnv = {}) {
   });
 }
 
+function color256ToHex(idx) {
+  if (idx < 16) {
+    const map = [
+      "#161b22", "#ff7b72", "#3fb950", "#d29922",
+      "#38bdf8", "#bc8cff", "#39c5cf", "#c9d1d9",
+      "#6e7681", "#ffa198", "#56d364", "#f0883e",
+      "#79c0ff", "#d2a8ff", "#56d4dd", "#ffffff"
+    ];
+    return map[idx];
+  }
+  if (idx >= 232) {
+    const gray = Math.round((idx - 232) * 10 + 8).toString(16).padStart(2, "0");
+    return `#${gray}${gray}${gray}`;
+  }
+  const n = idx - 16;
+  const b = (n % 6) ? ((n % 6) * 40 + 55) : 0;
+  const g = (Math.floor(n / 6) % 6) ? ((Math.floor(n / 6) % 6) * 40 + 55) : 0;
+  const r = (Math.floor(n / 36) % 6) ? ((Math.floor(n / 36) % 6) * 40 + 55) : 0;
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+}
+
+function parseColor(params, startIndex) {
+  const mode = params[startIndex + 1];
+  if (mode === 5 && params[startIndex + 2] !== undefined) {
+    return { color: color256ToHex(params[startIndex + 2]), consumed: 2 };
+  } else if (mode === 2 && params[startIndex + 4] !== undefined) {
+    const r = Math.min(255, Math.max(0, params[startIndex + 2]));
+    const g = Math.min(255, Math.max(0, params[startIndex + 3]));
+    const b = Math.min(255, Math.max(0, params[startIndex + 4]));
+    const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+    return { color: hex, consumed: 4 };
+  }
+  return { color: null, consumed: 0 };
+}
+
 function ansiToHtml(str) {
   const fgColors = {
     30: "#161b22", 31: "#ff7b72", 32: "#3fb950", 33: "#d29922",
@@ -47,56 +82,202 @@ function ansiToHtml(str) {
     104: "#74c0fc", 105: "#e599f7", 106: "#66d9e8", 107: "#ffffff"
   };
 
-  let escaped = str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  // Strip OSC sequences (e.g. OSC 8 hyperlinks \x1b]8;;url\x1b\ or window title sequences)
+  const cleanStr = str.replace(/\x1b\][^\x1b\x07]*(?:\x1b\\|\x07)/g, "");
 
-  let result = "";
-  let inBold = false;
-  let inFg = false;
-  let inBg = false;
+  const grid = [];
+  let row = 0;
+  let col = 0;
 
-  const closeFg = () => { if (inFg) { result += "</span>"; inFg = false; } };
-  const closeBg = () => { if (inBg) { result += "</span>"; inBg = false; } };
-  const closeBold = () => { if (inBold) { result += "</span>"; inBold = false; } };
-  const closeAll = () => { closeFg(); closeBg(); closeBold(); };
+  let currentFg = null;
+  let currentBg = null;
+  let currentBold = false;
 
-  const regex = /\x1b\[([0-9;]*)m/g;
-  let lastIndex = 0;
+  function ensureCell(r, c) {
+    while (grid.length <= r) {
+      grid.push([]);
+    }
+    const line = grid[r];
+    while (line.length <= c) {
+      line.push({ char: " ", fg: null, bg: null, bold: false });
+    }
+  }
+
+  const tokenRegex = /(\x1b\[[0-9;?]*[a-zA-Z])|(\x1b\([AB012])|(\r?\n)|(\r)|(\t)|([^\x1b\r\n\t]+)/g;
   let match;
 
-  while ((match = regex.exec(escaped)) !== null) {
-    result += escaped.slice(lastIndex, match.index);
-    lastIndex = regex.lastIndex;
+  while ((match = tokenRegex.exec(cleanStr)) !== null) {
+    const [, csi, , newline, cr, tab, text] = match;
 
-    const rawCodes = match[1] ? match[1].split(";").map(Number) : [0];
-    for (const code of rawCodes) {
-      if (code === 0) {
-        closeAll();
-      } else if (code === 1) {
-        if (!inBold) {
-          result += "<span style=\"font-weight:700;\">";
-          inBold = true;
-        }
-      } else if (fgColors[code]) {
-        closeFg();
-        result += `<span style="color:${fgColors[code]};">`;
-        inFg = true;
-      } else if (bgColors[code]) {
-        closeBg();
-        result += `<span style="background-color:${bgColors[code]};color:${bgColors[code]};">`;
-        inBg = true;
-      } else if (code === 39) {
-        closeFg();
-      } else if (code === 49) {
-        closeBg();
+    if (newline) {
+      row++;
+      col = 0;
+    } else if (cr) {
+      col = 0;
+    } else if (tab) {
+      col = (Math.floor(col / 8) + 1) * 8;
+    } else if (csi) {
+      const code = csi.slice(2, -1);
+      const cmd = csi.slice(-1);
+      const params = code ? code.split(";").map(p => parseInt(p, 10)) : [];
+      const n = params[0] || 1;
+
+      switch (cmd) {
+        case "A": // CUU: Cursor Up
+          row = Math.max(0, row - n);
+          break;
+        case "B": // CUD: Cursor Down
+          row = row + n;
+          break;
+        case "C": // CUF: Cursor Forward (Right)
+          col = col + n;
+          break;
+        case "D": // CUB: Cursor Back (Left)
+          col = Math.max(0, col - n);
+          break;
+        case "G": // CHA: Cursor Horizontal Absolute (1-based)
+          col = Math.max(0, (params[0] || 1) - 1);
+          break;
+        case "H":
+        case "f": // CUP: Cursor Position (row, col) (1-based)
+          row = Math.max(0, (params[0] || 1) - 1);
+          col = Math.max(0, (params[1] || 1) - 1);
+          break;
+        case "K": // EL: Erase in Line
+          if (grid[row]) {
+            const mode = params[0] || 0;
+            if (mode === 0) {
+              grid[row] = grid[row].slice(0, col);
+            } else if (mode === 1) {
+              for (let i = 0; i <= Math.min(col, grid[row].length - 1); i++) {
+                grid[row][i] = { char: " ", fg: null, bg: null, bold: false };
+              }
+            } else if (mode === 2) {
+              grid[row] = [];
+            }
+          }
+          break;
+        case "J": // ED: Erase in Display
+          if ((params[0] || 0) === 2) {
+            grid.length = 0;
+            row = 0;
+            col = 0;
+          }
+          break;
+        case "m": // SGR
+          if (params.length === 0) {
+            currentFg = null;
+            currentBg = null;
+            currentBold = false;
+          } else {
+            for (let i = 0; i < params.length; i++) {
+              const p = isNaN(params[i]) ? 0 : params[i];
+              if (p === 0) {
+                currentFg = null;
+                currentBg = null;
+                currentBold = false;
+              } else if (p === 1) {
+                currentBold = true;
+              } else if (p === 22) {
+                currentBold = false;
+              } else if (p === 39) {
+                currentFg = null;
+              } else if (p === 49) {
+                currentBg = null;
+              } else if (p >= 30 && p <= 37) {
+                currentFg = fgColors[p];
+              } else if (p >= 90 && p <= 97) {
+                currentFg = fgColors[p];
+              } else if (p >= 40 && p <= 47) {
+                currentBg = bgColors[p];
+              } else if (p >= 100 && p <= 107) {
+                currentBg = bgColors[p];
+              } else if (p === 38) {
+                const parsed = parseColor(params, i);
+                if (parsed.color) currentFg = parsed.color;
+                i += parsed.consumed;
+              } else if (p === 48) {
+                const parsed = parseColor(params, i);
+                if (parsed.color) currentBg = parsed.color;
+                i += parsed.consumed;
+              }
+            }
+          }
+          break;
+        // Ignore other CSIs like ?25l, ?25h
+      }
+    } else if (text) {
+      for (const ch of text) {
+        ensureCell(row, col);
+        grid[row][col] = {
+          char: ch,
+          fg: currentFg,
+          bg: currentBg,
+          bold: currentBold
+        };
+        col++;
       }
     }
   }
-  result += escaped.slice(lastIndex);
-  closeAll();
-  return result;
+
+  function escapeHtml(t) {
+    return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // Render grid to HTML
+  const linesHtml = [];
+  for (let r = 0; r < grid.length; r++) {
+    const line = grid[r] || [];
+    let lastIdx = line.length - 1;
+    while (lastIdx >= 0 && line[lastIdx].char === " " && !line[lastIdx].bg) {
+      lastIdx--;
+    }
+    if (lastIdx < 0) {
+      linesHtml.push("");
+      continue;
+    }
+
+    let lineHtml = "";
+    let runText = "";
+    let runFg = null;
+    let runBg = null;
+    let runBold = false;
+
+    const flushRun = () => {
+      if (!runText) return;
+      let style = "";
+      if (runFg) style += `color:${runFg};`;
+      if (runBg) style += `background-color:${runBg};`;
+      if (runBold) style += `font-weight:700;`;
+
+      const escaped = escapeHtml(runText);
+      if (style) {
+        lineHtml += `<span style="${style}">${escaped}</span>`;
+      } else {
+        lineHtml += escaped;
+      }
+      runText = "";
+    };
+
+    for (let c = 0; c <= lastIdx; c++) {
+      const cell = line[c];
+      if (cell.fg !== runFg || cell.bg !== runBg || cell.bold !== runBold) {
+        flushRun();
+        runFg = cell.fg;
+        runBg = cell.bg;
+        runBold = cell.bold;
+      }
+      runText += cell.char;
+    }
+    flushRun();
+    linesHtml.push(lineHtml);
+  }
+
+  while (linesHtml.length > 0 && linesHtml[linesHtml.length - 1] === "") {
+    linesHtml.pop();
+  }
+
+  return linesHtml.join("\n");
 }
 
 async function getFastfetch() {
