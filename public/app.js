@@ -155,7 +155,7 @@ function renderHtop(data) {
     </div>
   `;
 
-  // Process table layout: 2 sections (top 3 by CPU, top 3 by memory)
+  // Process table layout: 2 sections (top 5 by CPU, top 5 by memory)
   function renderProcRows(procList) {
     if (!procList || procList.length === 0) {
       return '<tr><td colspan="12" class="logs-placeholder">No processes found</td></tr>';
@@ -216,17 +216,17 @@ function renderHtop(data) {
   }
 
   const topCpu = (data.topCpu && data.topCpu.length > 0)
-    ? data.topCpu.slice(0, 3)
-    : (data.processes || []).slice().sort((a, b) => b.cpu - a.cpu).slice(0, 3);
+    ? data.topCpu.slice(0, 5)
+    : (data.processes || []).slice().sort((a, b) => b.cpu - a.cpu).slice(0, 5);
 
   const topMem = (data.topMem && data.topMem.length > 0)
-    ? data.topMem.slice(0, 3)
-    : (data.processes || []).slice().sort((a, b) => b.mem - a.mem).slice(0, 3);
+    ? data.topMem.slice(0, 5)
+    : (data.processes || []).slice().sort((a, b) => b.mem - a.mem).slice(0, 5);
 
   const tableHtml = `
     <div class="htop-procs-container">
-      ${renderProcSection('[CPU]', 'Top 3 Processes by CPU', topCpu, 'cpu')}
-      ${renderProcSection('[MEM]', 'Top 3 Processes by Memory Usage', topMem, 'mem')}
+      ${renderProcSection('[CPU]', 'Top 5 Processes by CPU', topCpu, 'cpu')}
+      ${renderProcSection('[MEM]', 'Top 5 Processes by Memory Usage', topMem, 'mem')}
     </div>
   `;
 

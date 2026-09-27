@@ -661,8 +661,8 @@ async function getProcesses() {
     } catch (e2) {}
   }
 
-  const topCpu = [...procs].sort((a, b) => b.cpu - a.cpu).slice(0, 3);
-  const topMem = [...procs].sort((a, b) => b.mem - a.mem).slice(0, 3);
+  const topCpu = [...procs].sort((a, b) => b.cpu - a.cpu).slice(0, 5);
+  const topMem = [...procs].sort((a, b) => b.mem - a.mem).slice(0, 5);
 
   return { topCpu, topMem, all: procs };
 }
