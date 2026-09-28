@@ -595,7 +595,7 @@ function formatProcUnit(val) {
   return num.toString();
 }
 
-function mapProcessLine(headers, parts) {
+function mapProcessLine(headers, parts, numCpus = 1) {
   const getCol = (patterns) => {
     for (const pat of patterns) {
       const idx = headers.findIndex(h => pat.test(h));
@@ -612,22 +612,24 @@ function mapProcessLine(headers, parts) {
   const res = formatProcUnit(getCol([/^res$/i, /^rss$/i]).val);
   const shr = formatProcUnit(getCol([/^shr$/i]).val) || '0';
   const state = (getCol([/^s(tat)?$/i]).val || 'S').charAt(0);
-  const cpu = parseFloat(getCol([/^%?cpu$/i]).val) || 0;
+  const rawCpu = parseFloat(getCol([/^%?cpu$/i]).val) || 0;
+  // Solaris mode: normalize by total number of CPU cores so %CPU is scaled to total system CPU (0-100%)
+  const cpu = parseFloat((rawCpu / (numCpus > 0 ? numCpus : 1)).toFixed(1));
   const mem = parseFloat(getCol([/^%?mem$/i]).val) || 0;
   const time = getCol([/^time\+?$/i]).val || '0:00.00';
 
   const cmdInfo = getCol([/^command$/i, /^args$/i]);
   const cmd = cmdInfo.idx !== -1 ? parts.slice(cmdInfo.idx).join(' ') : (parts[parts.length - 1] || '');
 
-  return { pid, user, pri, ni, virt, res, shr, state, cpu, mem, time, command: cmd };
+  return { pid, user, pri, ni, virt, res, shr, state, rawCpu, cpu, mem, time, command: cmd };
 }
 
 async function getProcesses() {
+  const numCpus = (currentCpuStats && currentCpuStats.length > 0) ? currentCpuStats.length : 1;
   let procs = [];
   try {
-    // Run 2 iterations with a short delay (0.3s) so top calculates real CPU deltas
-    // rather than the single-iteration micro-window startup spike.
-    const out = await runCommand('top', ['-b', '-n', '2', '-d', '0.3', '-w', '512']);
+    // Run 2 iterations with a 0.6s delay so top calculates real, smooth delta-based CPU usage
+    const out = await runCommand('top', ['-b', '-n', '2', '-d', '0.6', '-w', '512']);
     const lines = out.split('\n');
     let pidIndex = -1;
     for (let i = lines.length - 1; i >= 0; i--) {
@@ -643,7 +645,7 @@ async function getProcesses() {
         if (!line) continue;
         const parts = line.split(/\s+/);
         if (parts.length >= headers.length - 1) {
-          procs.push(mapProcessLine(headers, parts));
+          procs.push(mapProcessLine(headers, parts, numCpus));
         }
       }
     }
@@ -662,7 +664,7 @@ async function getProcesses() {
           if (!line) continue;
           const parts = line.split(/\s+/);
           if (parts.length >= headers.length - 1) {
-            procs.push(mapProcessLine(headers, parts));
+            procs.push(mapProcessLine(headers, parts, numCpus));
           }
         }
       }

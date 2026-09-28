@@ -61,9 +61,8 @@ Reads Linux procfs directly (`/proc/stat`, `/proc/meminfo`, `/proc/loadavg`, `/p
 - System metrics include load average, uptime formatting, and thread counts (`tasks`/`thr`/`kthr`).
 
 ### Process parsing (`getProcesses`, `mapProcessLine`)
-Runs `top -b -n 2 -d 0.3 -w 512` (sampling the 2nd iteration for accurate delta-based CPU% instead of single-iteration startup spikes), falling back to `ps -eo ... --sort=-pcpu`. `mapProcessLine`
-**dynamically discovers header names** (e.g. `PR`/`PRI`, `VSZ`/`VIRT`, `RSS`/`RES`, `%CPU`) so it
-works across distros and custom `~/.toprc` configs. Returns `topCpu`, `topMem`, and `all` procs.
+Runs `top -b -n 2 -d 0.6 -w 512` (sampling the 2nd iteration for smooth, delta-based CPU% instead of single-iteration startup spikes), falling back to `ps -eo ... --sort=-pcpu`. `mapProcessLine`
+**dynamically discovers header names** (e.g. `PR`/`PRI`, `VSZ`/`VIRT`, `RSS`/`RES`, `%CPU`), normalizes `%CPU` across total system cores (Solaris mode) so process CPU% is directly comparable to the per-core meters, and returns `topCpu`, `topMem`, and `all` procs.
 
 ---
 
